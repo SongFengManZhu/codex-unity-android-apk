@@ -1,6 +1,6 @@
 ---
 name: unity-android-apk
-description: Build a Unity or Tuanjie (团结引擎) project into an installable Android APK and verify it. Use when the user asks to build, export, package, or deliver an APK, 安卓安装包, 手机安装包, 手机能用的软件, or an Android app for a Unity project, especially when the project or editor path contains non-ASCII characters. Not for iOS/IPA, WebGL, Google Play AAB release signing, or non-Unity Android apps.
+description: Build a Unity or Tuanjie (团结引擎) project into an installable Android APK and verify it. Use when the user asks to build, export, package, or deliver an APK, 安卓安装包, 手机安装包, 手机能用的软件, or an Android app for a Unity project, on Windows, macOS or Linux, especially when paths contain non-ASCII characters. Not for iOS/IPA, WebGL, Google Play AAB release signing, or non-Unity Android apps.
 metadata:
   short-description: Build and verify Unity/Tuanjie Android APKs
 ---
@@ -13,8 +13,18 @@ Turn a Unity project into an APK that installs and launches on a phone, then pro
 
 Copy this folder so that `SKILL.md` sits at the skill root:
 
-- `%USERPROFILE%\.codex\skills\unity-android-apk` for every project, or
-- `<project>\.codex\skills\unity-android-apk` for one project.
+- `%USERPROFILE%\.codex\skills\unity-android-apk` on Windows,
+- `~/.codex/skills/unity-android-apk` on macOS/Linux, or
+- `<project>/.codex/skills/unity-android-apk` for one project.
+
+## Choose the platform script
+
+| OS | Build | Verify |
+| --- | --- | --- |
+| Windows | `scripts/Build-AndroidApk.ps1` | `scripts/Verify-AndroidApk.ps1` |
+| macOS / Linux | `scripts/Build-AndroidApk.sh` | `scripts/Verify-AndroidApk.sh` |
+
+Both build paths use the same `assets/CodexAndroidBuild.cs` entry, so behavior and verification are identical.
 
 ## Use when
 
@@ -24,51 +34,42 @@ Copy this folder so that `SKILL.md` sits at the skill root:
 
 ## Required environment
 
-- Run every command in **PowerShell**, not a WSL shell.
-- Unity or Tuanjie must have Android Build Support with `SDK`, `NDK` and `OpenJDK` under `Editor/Data/PlaybackEngines/AndroidPlayer`.
-- The Android toolchain can reject non-ASCII or very long paths. The script creates or reuses ASCII `subst` drives and removes only the mappings it created.
-- Build outputs default to `<project>\Builds\<Project>-Android`; never write them inside `Assets/`.
+- Windows: PowerShell 5.1 or 7. macOS/Linux: bash 3.2+.
+- Unity or Tuanjie must have Android Build Support with `SDK`, `NDK` and `OpenJDK` under `AndroidPlayer`:
+  - Windows/Linux: `Editor/Data/PlaybackEngines/AndroidPlayer`
+  - macOS: `Unity.app/Contents/PlaybackEngines/AndroidPlayer`
+- On Windows, the toolchain can reject non-ASCII or very long paths; the PowerShell script creates ASCII `subst` drives and removes only the mappings it created. macOS/Linux handle UTF-8 paths natively.
+- Build outputs default to `<project>/Builds/<Project>-Android`; never write them inside `Assets/`.
 
 ## Fast path
 
-Run the bundled script from PowerShell. It reads product name, bundle id, version, version code and minimum SDK from `ProjectSettings/ProjectSettings.asset` when they are not passed:
+### Windows
 
 ```powershell
 & '<skill-root>\scripts\Build-AndroidApk.ps1' `
   -ProjectPath 'D:\Games\MyGame'
 ```
 
-If the editor is not in a standard Unity Hub location, pass it explicitly:
+### macOS / Linux
 
-```powershell
-& '<skill-root>\scripts\Build-AndroidApk.ps1' `
-  -ProjectPath 'D:\Games\MyGame' `
-  -EditorPath 'D:\Unity\2022.3.62f1\Editor\Unity.exe'
+```bash
+"<skill-root>/scripts/Build-AndroidApk.sh" --project "$HOME/Games/MyGame"
 ```
 
-Useful overrides:
+If the editor is not in a standard Unity Hub location, pass it explicitly (`-EditorPath` / `--editor`).
 
-```powershell
--ProductName 'Game Name' -BundleId 'com.example.game' -Version '1.0.0' -VersionCode 1
--FriendlyName 'GameName-v1.0.0' -OutputDirectory 'Builds/MyGame-Android'
--Architectures 'armv7,arm64' -MinSdk 22 -Orientation landscape
--IconPath 'Assets/Art/AppIcon.png' -Scenes 'Assets/Scenes/Main.unity'
--KeystorePath 'keystore.jks' -KeystoreAlias 'release' -KeystorePassword '...' -KeyPassword '...'
--Aab -TimeoutMinutes 90 -DryRun
-```
-
-`-DryRun` resolves the editor, Android module and mapped paths without building. Use it first when the environment is unfamiliar.
+`-DryRun` / `--dry-run` resolves the editor, Android module and mapped paths without building. Use it first when the environment is unfamiliar.
 
 The script prints a JSON summary as its final output. Report the APK path, size, SHA-256, package/version, minimum Android version, ABIs and signing schemes. Offer `adb install -r <apk>` when a device is connected, but do not claim real-device testing unless `adb devices` showed a device and the app launched.
 
-## What the script does
+## What the scripts do
 
-1. Resolves the project, editor and Android module, preferring the editor version in `ProjectVersion.txt`. Search order: `-EditorPath`, `UNITY_HUB_EDITOR_ROOT` / `UNITY_EDITOR_ROOT` / `TUANJIE_HUB_EDITOR_ROOT` / `TUANJIE_EDITOR_ROOT`, standard Unity/Tuanjie Hub folders, then portable editors beside the project's parent folders.
-2. Creates or reuses ASCII `subst` mappings for the project and editor install.
-3. Installs `Assets/Editor/CodexAndroidBuild.cs` only when it is missing. The file reads build settings from `CODEX_ANDROID_*` environment variables, so the same entry works for future projects. Use `-RefreshAndroidBuildScript` to overwrite it, or `-SkipAndroidBuildScript -BuildMethod 'YourBuild.Entry'` to keep a project-specific entry.
-4. Configures package id, version, orientation, ARMv7+ARM64, IL2CPP Release, API 22 minimum, Gradle APK and icon.
-5. Waits for `CODEX_ANDROID_BUILD_SUCCESS|...` in the log instead of trusting the launcher process.
-6. Verifies with `aapt2 dump badging` and `apksigner verify`, then copies a friendly-named APK.
+1. Resolve the project, editor and Android module, preferring the editor version in `ProjectVersion.txt`. Search order: explicit editor path, `UNITY_HUB_EDITOR_ROOT` / `UNITY_EDITOR_ROOT` / `TUANJIE_HUB_EDITOR_ROOT` / `TUANJIE_EDITOR_ROOT`, standard Unity/Tuanjie Hub folders, then portable editors beside the project's parent folders.
+2. On Windows only, create or reuse ASCII `subst` mappings for the project and editor install.
+3. Install `Assets/Editor/CodexAndroidBuild.cs` only when it is missing. The file reads build settings from `CODEX_ANDROID_*` environment variables, so the same entry works for future projects. Use the refresh/skip switches to overwrite it or keep a project-specific entry.
+4. Configure package id, version, orientation, ARMv7+ARM64, IL2CPP Release, API 22 minimum, Gradle APK and icon.
+5. Wait for `CODEX_ANDROID_BUILD_SUCCESS|...` in the log instead of trusting the launcher process.
+6. Verify with `aapt2 dump badging` and `apksigner verify`, then copy a friendly-named APK.
 
 ## Mobile readiness
 
@@ -99,12 +100,13 @@ Debug signing is correct for sideloading. State that it is not suitable for Goog
 ## Re-check an APK
 
 ```powershell
-& '<skill-root>\scripts\Verify-AndroidApk.ps1' `
-  -ApkPath 'D:\path\to\game.apk' `
-  -ExpectedPackage 'com.example.game' `
-  -ExpectedVersion '1.0.0'
+& '<skill-root>\scripts\Verify-AndroidApk.ps1' -ApkPath 'D:\path\to\game.apk' -ExpectedPackage 'com.example.game' -ExpectedVersion '1.0.0'
+```
+
+```bash
+"<skill-root>/scripts/Verify-AndroidApk.sh" --apk "$HOME/path/to/game.apk" --expected-package com.example.game --expected-version 1.0.0
 ```
 
 ## Troubleshooting
 
-Read `references/environment.md` for Android module layout, `subst` behavior, license failures, Gradle failures and phone install errors.
+Read `references/environment.md` for per-OS editor paths, Android module layout, `subst` behavior, license failures, Gradle failures and phone install errors.
